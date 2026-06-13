@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useStudentSession } from "./hooks/useStudentSession";
 
 const PALETTE = {
   navy: "#0D1B2A",
@@ -13,6 +14,14 @@ const PALETTE = {
   blue: "#45A3FF",
 };
 
+const conceptNames = {
+  recursion: "Recursion",
+  arrays: "Arrays",
+  functions: "Functions",
+  loops: "Loops",
+  conditionals: "Conditionals",
+};
+
 const studentData = {
   name: "Rohan Sharma",
   class: "Class 11 — CBSE",
@@ -23,9 +32,12 @@ const studentData = {
   subjects: {
     "C Programming": [
       { topic: "Variables & Data Types", mastery: 92, status: "mastered" },
-      { topic: "Arrays", mastery: 88, status: "mastered" },
+      { topic: "Arrays", mastery: 88, status: "mastered", concept_id: "arrays" },
+      { topic: "Functions", mastery: 52, status: "progress", concept_id: "functions" },
+      { topic: "Loops", mastery: 62, status: "progress", concept_id: "loops" },
+      { topic: "Conditionals", mastery: 74, status: "progress", concept_id: "conditionals" },
       { topic: "Pointers", mastery: 45, status: "at-risk" },
-      { topic: "Recursion", mastery: 31, status: "danger" },
+      { topic: "Recursion", mastery: 31, status: "danger", concept_id: "recursion" },
       { topic: "Sorting Algorithms", mastery: 0, status: "locked" },
     ],
     Mathematics: [
@@ -91,10 +103,23 @@ const portals = {
 function App() {
   const [activePortal, setActivePortal] = useState("student");
   const [activeTab, setActiveTab] = useState(portals.student.tabs[0]);
+  const [tutorAutoPrompt, setTutorAutoPrompt] = useState(null);
+  const studentSession = useStudentSession();
 
   function switchPortal(portal) {
     setActivePortal(portal);
     setActiveTab(portals[portal].tabs[0]);
+  }
+
+  function openTutorForConcept(conceptId) {
+    const conceptName = conceptNames[conceptId] || conceptId;
+    const masteryPercent = Math.round(studentSession.masteryForConcept(conceptId) * 100);
+    setTutorAutoPrompt({
+      id: `${conceptId}-${Date.now()}`,
+      text: `I'm struggling with ${conceptName}. My mastery is ${masteryPercent}%. Can you explain it simply and give me a different example?`,
+    });
+    setActivePortal("student");
+    setActiveTab("AI Tutor");
   }
 
   return (
@@ -115,9 +140,13 @@ function App() {
       <main className="relative mx-auto max-w-7xl px-4 pb-10 pt-40 sm:px-6 lg:px-8 lg:pt-32">
         <section key={`${activePortal}-${activeTab}`} className="animate-[fadeSlide_.35s_ease-out]">
           <PortalHeader activePortal={activePortal} activeTab={activeTab} />
-          {activePortal === "student" && activeTab === "My Twin" && <StudentTwinView />}
+          {activePortal === "student" && activeTab === "My Twin" && (
+            <StudentTwinView studentSession={studentSession} openTutorForConcept={openTutorForConcept} />
+          )}
           {activePortal === "student" && activeTab === "Career Readiness" && <CareerReadiness />}
-          {activePortal === "student" && activeTab === "AI Tutor" && <AITutor />}
+          {activePortal === "student" && activeTab === "AI Tutor" && (
+            <AITutor autoPrompt={tutorAutoPrompt} onAutoPromptConsumed={() => setTutorAutoPrompt(null)} />
+          )}
           {activePortal === "teacher" && activeTab === "Class Dashboard" && <TeacherDashboard />}
           {activePortal === "teacher" && activeTab === "Interventions" && <TeacherInterventions />}
           {activePortal === "teacher" && activeTab === "Student Explorer" && <StudentExplorer />}
@@ -240,11 +269,11 @@ function PortalHeader({ activePortal, activeTab }) {
   );
 }
 
-function StudentTwinView() {
+function StudentTwinView({ studentSession, openTutorForConcept }) {
   return (
     <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)_310px]">
       <StudentProfileCard />
-      <SkillTree />
+      <SkillTree studentSession={studentSession} openTutorForConcept={openTutorForConcept} />
       <TwinAlerts />
     </div>
   );
@@ -329,7 +358,7 @@ function InfoPill({ label, value, accent }) {
   );
 }
 
-function SkillTree() {
+function SkillTree({ studentSession, openTutorForConcept }) {
   const [selectedNode, setSelectedNode] = useState(null);
 
   return (
@@ -351,14 +380,17 @@ function SkillTree() {
             subjectIndex={subjectIndex}
             selectedNode={selectedNode}
             setSelectedNode={setSelectedNode}
+            studentSession={studentSession}
           />
         ))}
       </div>
+
+      <PracticeCard studentSession={studentSession} openTutorForConcept={openTutorForConcept} />
     </Panel>
   );
 }
 
-function SubjectBranch({ subject, nodes, subjectIndex, selectedNode, setSelectedNode }) {
+function SubjectBranch({ subject, nodes, subjectIndex, selectedNode, setSelectedNode, studentSession }) {
   return (
     <div className="relative rounded-3xl bg-[#0D1B2A]/40 p-4 ring-1 ring-white/10">
       <div className="mb-4 flex items-center gap-3">
@@ -375,22 +407,33 @@ function SubjectBranch({ subject, nodes, subjectIndex, selectedNode, setSelected
         <div className="absolute left-8 right-8 top-1/2 h-px -translate-y-1/2 bg-gradient-to-r from-[#253347] via-[#00C9B1]/40 to-[#253347]" />
         {nodes.map((node, nodeIndex) => {
           const key = `${subject}-${node.topic}`;
+          const masteryPercent = node.concept_id
+            ? Math.round(studentSession.masteryForConcept(node.concept_id) * 100)
+            : node.mastery;
+          const status = node.concept_id ? statusForMastery(masteryPercent) : node.status;
           return (
             <div key={node.topic} className="relative">
               <button
-                onClick={() =>
-                  setSelectedNode(selectedNode?.key === key ? null : { ...node, subject, key, subjectIndex, nodeIndex })
-                }
+                onClick={() => {
+                  if (node.concept_id) {
+                    studentSession.setActiveConcept(node.concept_id);
+                  }
+                  setSelectedNode(
+                    selectedNode?.key === key
+                      ? null
+                      : { ...node, mastery: masteryPercent, status, subject, key, subjectIndex, nodeIndex },
+                  );
+                }}
                 className={`group relative z-10 min-h-[98px] w-[132px] rounded-2xl border px-3 py-3 text-left transition hover:-translate-y-1 hover:shadow-xl ${nodeStyles(
-                  node.status,
+                  status,
                 )}`}
               >
                 <span className="mb-2 flex items-center justify-between">
                   <span className="h-2.5 w-2.5 rounded-full bg-current shadow-[0_0_16px_currentColor]" />
-                  <span className="text-xs font-black">{node.mastery}%</span>
+                  <span className="text-xs font-black">{masteryPercent}%</span>
                 </span>
                 <span className="block text-sm font-bold leading-tight text-white">{node.topic}</span>
-                <span className="mt-2 block text-[11px] uppercase tracking-[0.14em] opacity-75">{node.status}</span>
+                <span className="mt-2 block text-[11px] uppercase tracking-[0.14em] opacity-75">{status}</span>
               </button>
 
               {selectedNode?.key === key && (
@@ -400,6 +443,106 @@ function SubjectBranch({ subject, nodes, subjectIndex, selectedNode, setSelected
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function PracticeCard({ studentSession, openTutorForConcept }) {
+  const [feedback, setFeedback] = useState(null);
+  const activeConceptName = conceptNames[studentSession.currentConceptId] || studentSession.currentConceptId;
+  const masteryPercent = Math.round(studentSession.masteryForConcept(studentSession.currentConceptId) * 100);
+  const currentQuestion = studentSession.currentQuestion;
+
+  useEffect(() => {
+    setFeedback(null);
+  }, [studentSession.currentConceptId, currentQuestion?.id]);
+
+  function handleAnswer(option) {
+    if (feedback) return;
+    const result = studentSession.answerQuestion(option);
+    if (!result) return;
+    setFeedback(result);
+  }
+
+  return (
+    <div className="mt-5 rounded-3xl bg-[#0D1B2A]/45 p-5 ring-1 ring-white/10">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#F5A623]">Adaptive Practice</p>
+          <h3 className="text-2xl font-black text-white">{activeConceptName}</h3>
+        </div>
+        <span className="w-fit rounded-full bg-[#253347] px-3 py-2 text-xs font-black uppercase tracking-[0.14em] text-[#8A9BB0] ring-1 ring-white/10">
+          {studentSession.currentDifficulty}
+        </span>
+      </div>
+
+      <div className="mb-5">
+        <div className="mb-2 flex items-center justify-between text-sm">
+          <span className="font-semibold text-[#8A9BB0]">BKT mastery</span>
+          <span className="font-black text-[#00C9B1]">{masteryPercent}%</span>
+        </div>
+        <div className="h-3 overflow-hidden rounded-full bg-[#253347]">
+          <div className="h-full rounded-full bg-[#00C9B1] transition-all duration-500" style={{ width: `${masteryPercent}%` }} />
+        </div>
+      </div>
+
+      {masteryPercent < 40 && (
+        <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-[#F5A623]/40 bg-[#F5A623]/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-semibold leading-6 text-[#FFE0A3]">
+            You seem to be struggling with this. Want help from the AI Tutor?
+          </p>
+          <button
+            onClick={() => openTutorForConcept(studentSession.currentConceptId)}
+            className="rounded-xl bg-[#F5A623] px-4 py-2 text-sm font-black text-[#0D1B2A] transition hover:-translate-y-0.5"
+          >
+            Ask Tutor
+          </button>
+        </div>
+      )}
+
+      {currentQuestion ? (
+        <div className="rounded-3xl bg-[#101f31] p-5 ring-1 ring-white/10">
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#8A9BB0]">
+            {currentQuestion.subject} · Class {currentQuestion.class} · {currentQuestion.board}
+          </p>
+          <h4 className="mt-3 text-xl font-black leading-8 text-white">{currentQuestion.question}</h4>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {currentQuestion.options.map((option, index) => {
+              const optionLetter = String.fromCharCode(65 + index);
+              return (
+              <button
+                key={optionLetter}
+                disabled={Boolean(feedback)}
+                onClick={() => handleAnswer(optionLetter)}
+                className="rounded-2xl border border-white/10 bg-[#253347] px-4 py-3 text-left text-sm font-bold text-white transition hover:border-[#00C9B1]/50 hover:bg-[#00C9B1]/10 disabled:cursor-not-allowed disabled:opacity-80"
+              >
+                <span className="mr-2 text-[#00C9B1]">{optionLetter}.</span>
+                {option}
+              </button>
+              );
+            })}
+          </div>
+
+          {feedback && (
+            <div
+              className={`mt-5 rounded-2xl border p-4 ${
+                feedback.isCorrect
+                  ? "border-[#00C9B1]/40 bg-[#00C9B1]/10"
+                  : "border-[#E05C5C]/40 bg-[#E05C5C]/10"
+              }`}
+            >
+              <p className={`font-black ${feedback.isCorrect ? "text-[#00C9B1]" : "text-[#E05C5C]"}`}>
+                {feedback.isCorrect ? "Correct" : "Not quite"}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-[#C9D4E2]">{feedback.explanation}</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-2xl bg-[#253347] p-4 text-sm font-semibold text-[#8A9BB0]">
+          Select Recursion, Arrays, Functions, Loops, or Conditionals to start adaptive practice.
+        </div>
+      )}
     </div>
   );
 }
@@ -937,15 +1080,15 @@ function MarketSyncBanner() {
   );
 }
 
-function AITutor() {
+function AITutor({ autoPrompt, onAutoPromptConsumed }) {
   return (
     <div className="mx-auto max-w-4xl">
-      <ChatInterface />
+      <ChatInterface autoPrompt={autoPrompt} onAutoPromptConsumed={onAutoPromptConsumed} />
     </div>
   );
 }
 
-function ChatInterface() {
+function ChatInterface({ autoPrompt, onAutoPromptConsumed }) {
   const [messages, setMessages] = useState([
     {
       role: "assistant",
@@ -957,10 +1100,18 @@ function ChatInterface() {
   const [isTyping, setIsTyping] = useState(false);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem("edutwin_anthropic_key") || "");
   const bottomRef = useRef(null);
+  const consumedAutoPromptRef = useRef(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
+
+  useEffect(() => {
+    if (!autoPrompt?.text || consumedAutoPromptRef.current === autoPrompt.id) return;
+    consumedAutoPromptRef.current = autoPrompt.id;
+    onAutoPromptConsumed?.();
+    sendText(autoPrompt.text);
+  }, [autoPrompt]);
 
   function saveApiKey(value) {
     setApiKey(value);
@@ -971,9 +1122,7 @@ function ChatInterface() {
     }
   }
 
-  async function sendMessage(event) {
-    event.preventDefault();
-    const text = input.trim();
+  async function sendText(text) {
     if (!text || isTyping) return;
 
     const nextMessages = [...messages, { role: "user", text }];
@@ -996,6 +1145,12 @@ function ChatInterface() {
     } finally {
       setIsTyping(false);
     }
+  }
+
+  async function sendMessage(event) {
+    event.preventDefault();
+    const text = input.trim();
+    await sendText(text);
   }
 
   return (
@@ -1142,6 +1297,12 @@ function nodeStyles(status) {
   };
 
   return styles[status] || styles.locked;
+}
+
+function statusForMastery(masteryPercent) {
+  if (masteryPercent >= 80) return "mastered";
+  if (masteryPercent >= 40) return "progress";
+  return "danger";
 }
 
 function recommendationFor(node) {
