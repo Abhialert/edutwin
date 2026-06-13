@@ -17,7 +17,11 @@ npm install
 npm run dev
 ```
 
-Then open the local URL shown in the terminal.
+Then open the local URL shown in the terminal. The editable Vite entry is `index.source.html`.
+
+## GitHub Pages
+
+This repo is compatible with GitHub Pages set to deploy from `main` / repository root. `npm run build` creates the Vite production bundle and copies the static `index.html` plus `assets/` into the root so `https://abhialert.github.io/edutwin/` can serve it directly.
 
 ## AI Tutor API
 

@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "vite build",
+    "dev": "vite --host 127.0.0.1 --open /index.source.html",
+    "build": "node scripts/build-pages.mjs",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
